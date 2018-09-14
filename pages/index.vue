@@ -1,19 +1,19 @@
 <template>
   <v-layout column wrap justify-center>
-    <v-flex xs6 ma-2>
+    <v-flex xs6 ma-2 id="noprint">
       <v-card>
         <v-card-title class="headline blue lighten-4">現在地のロケーションを取得</v-card-title>
         <v-card-text>
           <v-list>
             <v-layout row v-for="(point, index) in points" :key="point.index">
               <v-flex xs2 ma-2>
-                <v-subheader xs2>地点{{index}}</v-subheader>
+                <v-subheader xs2>Point {{index}}</v-subheader>
               </v-flex>
               <v-flex xs3 ma-2>
-                <v-text-field label="経度" single-line v-model="point.latitude"></v-text-field>
+                <v-text-field label="経度" single-line v-model.number="point.pos.lat"></v-text-field>
               </v-flex>
               <v-flex xs3 ma-2>
-                <v-text-field label="緯度" single-line v-model="point.longitude"></v-text-field>
+                <v-text-field label="緯度" single-line v-model.number="point.pos.lng"></v-text-field>
               </v-flex>
               <v-flex xs4 ma-2>
                 <v-btn @click="getPosition(index)" small fab>
@@ -37,7 +37,6 @@
         </v-card-actions>
       </v-card>
     </v-flex>
-
     <v-flex xs6 ma-2 v-if="lines.length>0">
       <v-card>
         <v-card-title class="headline blue lighten-4">距離計算結果</v-card-title>
@@ -53,13 +52,32 @@
             </thead>
             <tbody>
               <tr v-for="(line,index) in lines" :key="index">
-                <td style="text-align:center; padding:0px;">{{index}}</td>
-                <td>{{line.descrption}}</td>
+                <td style="text-align:center; padding:0px;">{{(index===0)?'Start':index}}</td>
+                <td style="text-align:left;">{{line.descrption}}</td>
                 <td>{{line.distance.toFixed(3)}} m</td>
                 <td>{{line.direction.toFixed(3)}}°</td>
               </tr>
             </tbody>
           </table>
+        </v-card-tile>
+      </v-card>
+    </v-flex>
+    <v-flex xs6 ma-2 v-if="lines.length>0">
+      <v-card>
+        <v-card-title class="headline blue lighten-4">Map表示</v-card-title>
+        <v-card-tile>
+          <GmapMap :center="center" :zoom="17" map-type-id="terrain" style="width: 100%; height: 400px; border: 1px solid;">
+            <GmapMarker :key="index" v-for="(p, index) in points" :position="p.pos" :label="p.label" :clickable="true" :draggable="false" />
+            <gmap-polyline v-if="path.length > 0" :path="path" :editable="false" ref="polyline"></gmap-polyline>
+          </GmapMap>
+        </v-card-tile>
+      </v-card>
+    </v-flex>
+    <v-flex xs6 ma-2 v-if="lines.length>0">
+      <v-card>
+        <v-card-tile>
+          <v-btn @click="printPdf">
+            <v-icon>print</v-icon> 印刷</v-btn>
         </v-card-tile>
       </v-card>
     </v-flex>
@@ -70,13 +88,15 @@ export default {
   data () {
     return {
       points: [
-        { 'latitude': 34.803008, 'longitude': 135.628324 },
-        { 'latitude': 34.803453, 'longitude': 135.628396 },
-        { 'latitude': 34.803497, 'longitude': 135.626272 },
-        { 'latitude': 34.802387, 'longitude': 135.626637 },
-        { 'latitude': 34.802409, 'longitude': 135.627109 }
+        { pos: { 'lat': 34.803008, 'lng': 135.628324 }, label: { text: 'st', color: 'white' } },
+        { pos: { 'lat': 34.803453, 'lng': 135.628396 }, label: { text: '1', color: 'white' } },
+        { pos: { 'lat': 34.803497, 'lng': 135.626272 }, label: { text: '2', color: 'white' } },
+        { pos: { 'lat': 34.802387, 'lng': 135.626637 }, label: { text: '3', color: 'white' } },
+        { pos: { 'lat': 34.802409, 'lng': 135.627109 }, label: { text: '4', color: 'white' } }
       ],
-      lines: []
+      lines: [],
+      center: { 'lat': null, 'lng': null },
+      path: []
     }
   },
   methods: {
@@ -85,8 +105,8 @@ export default {
         // 取得成功した場合
         function (position) {
           let point = this.points[index]
-          point.latitude = position.coords.latitude
-          point.longitude = position.coords.longitude
+          point.pos.lat = position.coords.latitude
+          point.pos.lng = position.coords.longitude
         },
         // 取得失敗した場合
         function (error) {
@@ -108,10 +128,15 @@ export default {
       )
     },
     addPoint () {
-      this.points.push({ 'latitude': null, 'longitude': null })
+      this.points.push({ pos: { 'lat': null, 'lng': null }, label: { text: 'X', color: 'white' } })
+      this.googleMapsInitialized = true
     },
     removePoint (index) {
       this.points.splice(index, 1)
+      this.calcCenter()
+      this.setMarkerLabel()
+      this.makePath()
+      this.googleMapsInitialized = true
     },
     calcDistanceAndDirection () {
       this.lines = []
@@ -119,21 +144,26 @@ export default {
         let pointA
         let pointB
         let bIndex
-        pointA = this.points[i]
+        pointA = this.points[i].pos
         if (i === this.points.length - 1) {
           bIndex = 0
         } else {
           bIndex = i + 1
         }
-        pointB = this.points[bIndex]
+        pointB = this.points[bIndex].pos
         this.lines.push([{ 'descrption': '', 'distance': null, 'direction': null }])
-        let distance = this.geoDistance(pointA.latitude, pointA.longitude, pointB.latitude, pointB.longitude, 7)
-        let direction = this.geoDirection(pointA.latitude, pointA.longitude, pointB.latitude, pointB.longitude)
+        let distance = this.geoDistance(pointA.lat, pointA.lng, pointB.lat, pointB.lng, 7)
+        let direction = this.geoDirection(pointA.lat, pointA.lng, pointB.lat, pointB.lng)
 
-        this.lines[i].descrption = '地点' + i + ' ⇒ 地点' + bIndex
+        this.lines[i].descrption = ((i === 0) ? 'Start　' : 'Point ' + i) + ' ⇒ ' + ((bIndex === 0) ? 'Goal' : 'Point' + i)
         this.lines[i].distance = distance
         this.lines[i].direction = direction
       }
+
+      this.calcCenter()
+      this.setMarkerLabel()
+      this.makePath()
+      this.googleMapsInitialized = true
     },
     geoDistance (lat1, lng1, lat2, lng2, precision) {
       // 引数precisionは小数点以下の桁数（距離の精度）
@@ -174,10 +204,51 @@ export default {
       }
       var dirN0 = (dirE0 + 90) % 360 // (dirE0+90)÷360の余りを出力北向きが０度の方向
       return dirN0
+    },
+    calcCenter () {
+      let sumLat = 0
+      let sumLng = 0
+      this.points.forEach(p => {
+        sumLat += p.pos.lat
+        sumLng += p.pos.lng
+      })
+      if (this.points.length > 0) {
+        this.center.lat = sumLat / this.points.length
+        this.center.lng = sumLng / this.points.length
+      }
+      return this.center
+    },
+    makePath () {
+      this.path = []
+      if (this.points.length <= 0) {
+        return
+      }
+      this.points.forEach(p => {
+        this.path.push(p.pos)
+      })
+      this.path.push(this.points[0].pos)
+    },
+    setMarkerLabel () {
+      let cnt = 0
+      this.points.forEach(p => {
+        if (cnt === 0) {
+          p.label.text = 'start'
+        } else {
+          p.label.text = cnt.toString()
+        }
+        cnt++
+      })
+    },
+    printPdf () {
+      print('printarea', 'html')
     }
+  },
+  computed: {
+
   }
 }
 </script>
+
 <style scoped>
 table {
   width: 100%;
@@ -193,5 +264,16 @@ td {
 }
 th {
   border: solid 1px #cccccc;
+}
+</style>
+<style>
+@media print {
+  #noprint {
+    visibility: hidden;
+    height: 0px;
+  }
+  img {
+    max-width: auto !important;
+  }
 }
 </style>

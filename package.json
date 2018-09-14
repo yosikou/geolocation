@@ -13,6 +13,9 @@
   },
   "dependencies": {
     "nuxt": "^1.0.0",
+    "print-js": "^1.0.50",
+    "types": "^0.1.1",
+    "vue2-google-maps": "^0.10.2",
     "vuetify": "^1.0.0"
   },
   "devDependencies": {
