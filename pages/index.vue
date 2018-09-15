@@ -105,8 +105,8 @@ export default {
         // 取得成功した場合
         function (position) {
           let point = this.points[index]
-          point.pos.lat = position.coords.latitude
-          point.pos.lng = position.coords.longitude
+          point.pos.lat = Number(position.coords.latitude)
+          point.pos.lng = Number(position.coords.longitude)
         },
         // 取得失敗した場合
         function (error) {
